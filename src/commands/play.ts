@@ -8,8 +8,10 @@ import {
     VoiceConnectionStatus,
     AudioPlayerStatus,
     AudioPlayer,
+    entersState,
 } from "@discordjs/voice";
 import { OpusEncoder } from "@discordjs/opus";
+// const lame = require("lame");
 import {
     Guild,
     SlashCommandBuilder,
@@ -17,14 +19,16 @@ import {
 } from "discord.js";
 import ytdl from "ytdl-core";
 import fs from "fs";
-// const { createReadStream } = require("node:fs");
+const { createReadStream } = require("node:fs");
 import { join } from "node:path";
-
+const pcmConvert = require("pcm-convert");
 // Wrap ytdl in a Promise
 function downloadAudio(ytUrl: string): Promise<string> {
     return new Promise((resolve, reject) => {
-        const stream = ytdl(ytUrl, { filter: "audioonly" })
-            .on("error", (err) => {
+        const stream = ytdl(ytUrl, {
+            filter: "audioonly",
+        })
+            .on("error", (err: any) => {
                 reject(err);
             })
             .on("end", () => {
@@ -38,13 +42,13 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName("play")
         .setDescription("Plays audio from YouTube URL")
-        .addStringOption((option) =>
+        .addStringOption(option =>
             option
                 .setName("url")
                 .setDescription("The YouTube URL of the video to play")
                 .setRequired(true)
         )
-        .addStringOption((option) =>
+        .addStringOption(option =>
             option
                 .setName("volume")
                 .setDescription(
@@ -55,7 +59,7 @@ module.exports = {
     async execute(interaction: any) {
         const guild: Guild = interaction.guild;
         let channel = interaction.channel;
-        const opusEncoder = new OpusEncoder(48000, 2);
+        // const opusEncoder = new OpusEncoder(48000, 2);
         const voiceChannels = guild.channels.cache;
         const permissions = channel.permissionsFor(interaction.client.user);
         // console.log(interaction.client.user);
@@ -80,7 +84,7 @@ module.exports = {
         if (!permissions.has("SPEAK")) {
             await interaction.reply("I cannot speak in this channel.");
         }
-        voiceChannels.forEach((c) => {
+        voiceChannels.forEach(c => {
             // console.log(c);
             if (c.type === 2) {
                 // console.log(c);
@@ -102,19 +106,16 @@ module.exports = {
         console.log(`resourcePath: ${resourcePath}`);
 
         const resource: AudioResource = createAudioResource(resourcePath, {
-            inputType: StreamType.Opus,
             inlineVolume: true,
-            silencePaddingFrames: 5,
-            // silenceThreshold: -70,
-            metadata: {
-                inputFormat: {
-                    channelCount: 2,
-                    sampleRate: 48000,
-                    bitrate: 128,
-                    codec: "mp3",
-                },
-            },
         });
+        // resource.playbackDuration = 180000;
+        // Create the encoder.
+        // Specify 48kHz sampling rate and 2 channel size.
+        // const encoder = new OpusEncoder(48000, 2);
+
+        // // Encode and decode.
+        // const encoded = encoder.encode(resource);
+        // const decoded = encoder.decode(encoded);
         if (interaction.options.get("volume")) {
             let volumeArg = interaction.options.get("volume").value;
             if (volumeArg.length > 1 && !volumeArg.includes(".")) {
@@ -154,7 +155,7 @@ module.exports = {
             console.log(volumeArg);
         }
 
-        const { metadata } = resource;
+        // const { metadata } = resource;
 
         // console.log(`metadata:`);
         // console.dir(metadata);
@@ -164,7 +165,9 @@ module.exports = {
         //     channel.guild.id,
         //     channel.guild.voiceAdapterCreator
         // );
-        const connection = joinVoiceChannel({
+        console.log(`channel.id: ${channel.id}`);
+        console.log(`channel.guild.id: ${channel.guild.id}`);
+        let connection = joinVoiceChannel({
             channelId: channel.id,
             guildId: channel.guild.id,
             adapterCreator: channel.guild.voiceAdapterCreator,
@@ -175,6 +178,8 @@ module.exports = {
         const player = createAudioPlayer();
         // console.log(`player: ${player}`);
 
+        console.log("playing resource");
+        player.play(resource);
         // console.log(resource);
         const subscription = connection.subscribe(player);
         // console.log(`connection: ${connection}`);
@@ -185,6 +190,16 @@ module.exports = {
         connection.on(
             "stateChange",
             (oldState: { status: any }, newState: { status: any }) => {
+                if (
+                    oldState.status === "connecting" &&
+                    newState.status === "connecting"
+                ) {
+                    connection = joinVoiceChannel({
+                        channelId: channel.id,
+                        guildId: channel.guild.id,
+                        adapterCreator: channel.guild.voiceAdapterCreator,
+                    });
+                }
                 console.log(
                     `Connection transitioned from ${oldState.status} to ${newState.status}`
                 );
@@ -192,15 +207,42 @@ module.exports = {
         );
 
         connection.on(VoiceConnectionStatus.Ready, (oldState, newState) => {
+            player.unpause();
             console.log("Connection is in the Ready state!");
-            console.log("playing resource");
-            player.play(resource);
         });
 
+        // connection.on(VoiceConnectionStatus.Signalling, () => {
+        //     console.log(
+        //         "connection in signalling status"
+        //     );
+        //     // connection = joinVoiceChannel({
+        //     //     channelId: channel.id,
+        //     //     guildId: channel.guild.id,
+        //     //     adapterCreator: channel.guild.voiceAdapterCreator,
+        //     // });
+        //     // connection.subscribe(player);
+        // });
         connection.on(
             VoiceConnectionStatus.Disconnected,
-            (oldState, newState) => {
-                console.log("voice connection disconnected.");
+            async (oldState, newState) => {
+                try {
+                    await Promise.race([
+                        entersState(
+                            connection,
+                            VoiceConnectionStatus.Signalling,
+                            5_000
+                        ),
+                        entersState(
+                            connection,
+                            VoiceConnectionStatus.Connecting,
+                            5_000
+                        ),
+                    ]);
+                    // Seems to be reconnecting to a new channel - ignore disconnect
+                } catch (error) {
+                    // Seems to be a real disconnect which SHOULDN'T be recovered from
+                    connection.destroy();
+                }
             }
         );
         player.on(AudioPlayerStatus.Idle, (oldState, newState) => {
@@ -221,6 +263,9 @@ module.exports = {
         //         `Audio player transitioned from ${oldState.status} to ${newState.status}`
         //     );
         // });
+        // v6
+        // v5
+
         await interaction.reply({ content: `Playing audio`, ephemeral: true });
     },
 };
