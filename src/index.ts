@@ -1,8 +1,9 @@
 const { Client, Collection, Events, GatewayIntentBits } = require("discord.js");
 const { token } = require("../config.json");
-import { getVoiceConnection } from "@discordjs/voice";
+import { getVoiceConnection, getVoiceConnections } from "@discordjs/voice";
 import fs from "node:fs";
 import path from "node:path";
+import chokidar from "chokidar";
 
 // Create a new client instance
 export const client = new Client({
@@ -18,6 +19,42 @@ export const client = new Client({
 
 client.once(Events.ClientReady, (t_client: any) => {
     console.log(`Ready! Logged in as ${t_client.user.tag}`);
+});
+
+const watcher = chokidar.watch("./src", { ignoreInitial: true });
+
+watcher.on("all", (event, path) => {
+    console.log(`File ${path} has been changed`);
+    //
+    const voiceConnections = getVoiceConnections();
+    console.log(voiceConnections);
+    voiceConnections.forEach((connection: { disconnect: () => void }) => {
+        console.log("voice connection found, disconnecting");
+        connection.disconnect();
+        console.log();
+    });
+
+    // Do any other cleanup work here
+});
+
+process.on("SIGINT", () => {
+    console.log("process sigint");
+    const voiceConnections = getVoiceConnections();
+    voiceConnections.forEach((connection: { disconnect: () => void }) => {
+        console.log("voice connection found");
+        connection.disconnect();
+    });
+    process.exit();
+});
+
+process.on("restart", () => {
+    console.log("process restart");
+    const voiceConnections = getVoiceConnections();
+    voiceConnections.forEach((connection: { disconnect: () => void }) => {
+        console.log("voice connection found");
+        connection.disconnect();
+    });
+    process.exit();
 });
 
 client.login(token);
@@ -53,9 +90,9 @@ client.on(Events.MessageCreate, async (message: any) => {
 client.on(Events.InteractionCreate, async (interaction: any) => {
     const command = interaction.client.commands.get(interaction.commandName);
 
-    if (command.data.name == "ce") {
-        console.log("Create event called");
-    }
+    // if (command.data.name == "ce") {
+    //     console.log("Create event called");
+    // }
 
     if (!command) {
         console.error(

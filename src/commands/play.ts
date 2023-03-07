@@ -9,19 +9,28 @@ import {
     AudioPlayerStatus,
     AudioPlayer,
     entersState,
+    VoiceConnection,
+    getVoiceConnection,
 } from "@discordjs/voice";
-import { OpusEncoder } from "@discordjs/opus";
-// const lame = require("lame");
+
 import {
+    BaseInteraction,
+    Channel,
+    ChatInputCommandInteraction,
+    CommandInteraction,
+    DMChannel,
     Guild,
+    Interaction,
+    PartialDMChannel,
+    PermissionResolvable,
     SlashCommandBuilder,
     SlashCommandStringOption,
+    TextBasedChannel,
+    TextChannel,
 } from "discord.js";
 import ytdl from "ytdl-core";
 import fs from "fs";
-const { createReadStream } = require("node:fs");
-import { join } from "node:path";
-const pcmConvert = require("pcm-convert");
+
 // Wrap ytdl in a Promise
 function downloadAudio(ytUrl: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -38,35 +47,56 @@ function downloadAudio(ytUrl: string): Promise<string> {
     });
 }
 
+// function sleep(ms: number) {
+//     return new Promise((resolve) => {
+//         setTimeout(resolve, ms);
+//     });
+// }
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("play")
         .setDescription("Plays audio from YouTube URL")
-        .addStringOption(option =>
+        .addStringOption((option: SlashCommandStringOption) =>
             option
                 .setName("url")
                 .setDescription("The YouTube URL of the video to play")
                 .setRequired(true)
         )
-        .addStringOption(option =>
-            option
-                .setName("volume")
-                .setDescription(
-                    "Volume to play the audio at. Must be between 0 and 0.5 inclusive."
-                )
-                .setRequired(false)
+        .addStringOption(
+            (option: SlashCommandStringOption) =>
+                option
+                    .setName("volume")
+                    .setDescription(
+                        "The volume to play the audio; must be in the range 0 to 0.5 inclusive."
+                    )
+                    .setRequired(false) // Default to 0.05
         ),
     async execute(interaction: any) {
-        const guild: Guild = interaction.guild;
-        let channel = interaction.channel;
-        // const opusEncoder = new OpusEncoder(48000, 2);
-        const voiceChannels = guild.channels.cache;
-        const permissions = channel.permissionsFor(interaction.client.user);
-        // console.log(interaction.client.user);
+        // Get information about caller
+        const guild: Guild | null = interaction.guild;
+        let channel: any = interaction.channel;
+        const voiceChannels = guild?.channels.cache;
+        const permissions: any = channel?.permissionsFor(
+            interaction.client.user
+        );
+
+        const voiceConnection = getVoiceConnection(guild.id);
+        if (voiceConnection) {
+            await interaction.reply({
+                content:
+                    "The bot is currently not available for a song request",
+                ephemeral: true,
+            });
+            return;
+        }
+        // Get url argument
         const ytUrl = interaction.options.get("url").value;
         console.log(
             `interaction argument: ${interaction.options.get("url").value}`
         );
+
+        // Ensure URL endpoint is YouTube
         if (
             !ytUrl.match(
                 /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.?be)\/.+$/gi
@@ -78,44 +108,37 @@ module.exports = {
             });
             return;
         }
+
+        // Notify user of missing permissions and return
         if (!permissions.has("CONNECT")) {
             await interaction.reply("I cannot connect to this channel");
+            return;
         }
         if (!permissions.has("SPEAK")) {
             await interaction.reply("I cannot speak in this channel.");
+            return;
         }
-        voiceChannels.forEach(c => {
-            // console.log(c);
+
+        voiceChannels?.forEach((c) => {
             if (c.type === 2) {
-                // console.log(c);
+                // 2 = voice
                 if (c.name === "General") {
+                    // Play in General for now, should change this to check for id or something..
                     channel = c;
-                    // console.log("found channel named general.");
-                    // console.log(`channel id found: ${channel}`);
-                    // console.log(`channel in loop: ${channel}`);
                     return;
                 }
             }
         });
 
-        // ytdl(ytUrl, {
-        //     filter: "audioonly",
-        // }).pipe(fs.createWriteStream("audio.mp3"));
-
+        // Get resource
         const resourcePath = await downloadAudio(ytUrl);
-        console.log(`resourcePath: ${resourcePath}`);
 
+        // Create audio resource
         const resource: AudioResource = createAudioResource(resourcePath, {
             inlineVolume: true,
         });
-        // resource.playbackDuration = 180000;
-        // Create the encoder.
-        // Specify 48kHz sampling rate and 2 channel size.
-        // const encoder = new OpusEncoder(48000, 2);
 
-        // // Encode and decode.
-        // const encoded = encoder.encode(resource);
-        // const decoded = encoder.decode(encoded);
+        // Handle volume argument
         if (interaction.options.get("volume")) {
             let volumeArg = interaction.options.get("volume").value;
             if (volumeArg.length > 1 && !volumeArg.includes(".")) {
@@ -152,76 +175,142 @@ module.exports = {
         } else {
             const volumeArg = 0.05;
             resource.volume?.setVolume(volumeArg);
-            console.log(volumeArg);
+            console.log(`volumeArg: ${volumeArg}`);
         }
 
-        // const { metadata } = resource;
-
-        // console.log(`metadata:`);
-        // console.dir(metadata);
-        // console.log(`resource: ${resource}`);
-        // console.log(
-        //     channel.id,
-        //     channel.guild.id,
-        //     channel.guild.voiceAdapterCreator
-        // );
-        console.log(`channel.id: ${channel.id}`);
-        console.log(`channel.guild.id: ${channel.guild.id}`);
+        // Join the voice channel
         let connection = joinVoiceChannel({
             channelId: channel.id,
             guildId: channel.guild.id,
             adapterCreator: channel.guild.voiceAdapterCreator,
+            // debug: true,
         });
 
-        // console.log(`connection: ${connection}`);
+        connection.on("error", (error) => {
+            console.error(`VoiceConnection error: ${error}`);
+        });
 
+        // connection.on("debug", (m) => {
+        //     console.log("Voice Debug:", m);
+        // });
+
+        // Create audio player
         const player = createAudioPlayer();
-        // console.log(`player: ${player}`);
 
-        console.log("playing resource");
-        player.play(resource);
-        // console.log(resource);
-        const subscription = connection.subscribe(player);
-        // console.log(`connection: ${connection}`);
-        // console.dir(connection);
+        // Begin playing resource with AudioPlayer
+        // console.log("playing resource");
+        // player.play(resource);
+        console.log("subscribing to AudioPlayer");
+        const subscription = connection.subscribe(player); // subscribes the player to the connection to play the audio in the current connection
 
         player.on("error", (error: any) => console.error(error));
 
+        // function sleep(ms: number) {
+        //     return new Promise((resolve) => setInterval(resolve, ms));
+        // }
+
+        // async function wait() {
+        //     console.log("Waiting for 3000ms...");
+        //     await sleep(3000);
+        //     console.log("3000ms have passed.");
+        // }
+
+        // wait();
+        let numRetries = 0;
         connection.on(
             "stateChange",
-            (oldState: { status: any }, newState: { status: any }) => {
-                if (
-                    oldState.status === "connecting" &&
-                    newState.status === "connecting"
-                ) {
-                    connection = joinVoiceChannel({
-                        channelId: channel.id,
-                        guildId: channel.guild.id,
-                        adapterCreator: channel.guild.voiceAdapterCreator,
-                    });
-                }
+            async (oldState: { status: any }, newState: { status: any }) => {
+                const oldNetworking = Reflect.get(oldState, "networking");
+                const newNetworking = Reflect.get(newState, "networking");
+
+                const networkStateChangeHandler = (
+                    oldNetworkState: any,
+                    newNetworkState: any
+                ) => {
+                    const newUdp = Reflect.get(newNetworkState, "udp");
+                    clearInterval(newUdp?.keepAliveInterval);
+                };
+
+                oldNetworking?.off("stateChange", networkStateChangeHandler);
+                newNetworking?.on("stateChange", networkStateChangeHandler);
                 console.log(
-                    `Connection transitioned from ${oldState.status} to ${newState.status}`
+                    `connection changed from ${oldState.status} to ${newState.status}`
                 );
+                let isConnecting = false;
+                let connectingTimeout: NodeJS.Timeout | null = null;
+                if (newState.status === VoiceConnectionStatus.Connecting) {
+                    isConnecting = true;
+                    connectingTimeout = setTimeout(() => {
+                        if (
+                            isConnecting &&
+                            connection.state.status ===
+                                VoiceConnectionStatus.Connecting
+                        ) {
+                            console.log("Audio player is stuck on connecting");
+                            // Take appropriate action, such as disconnecting and reconnecting the bot
+                            connection.disconnect();
+                            connection.rejoin();
+                        }
+                    }, 3000); // 3 seconds
+                } else {
+                    console.log(`connection status: ${newState.status}`);
+                    isConnecting = false;
+                    if (connectingTimeout !== null) {
+                        clearTimeout(connectingTimeout);
+                        connectingTimeout = null;
+                    }
+                }
+                // console.log(`numRetries: ${numRetries}`);
+                // if (
+                //     oldState.status === "ready" &&
+                //     newState.status === "connecting"
+                // ) {
+                //     connection.configureNetworking();
+                // } else if (
+                //     oldState.status === "connecting" &&
+                //     newState.status === "connecting"
+                // ) {
+                //     numRetries++;
+                //     if (numRetries > 4) {
+                //         connection.configureNetworking();
+                //     }
+                // }
+                // if (
+                //     oldState.status === "connecting" &&
+                //     newState.status === "connecting"
+                // ) {
+                //     console.log(`numRetries: ${numRetries}`);
+                //     if (numRetries >= 0 && numRetries <= 2) {
+                //         numRetries++;
+                //         console.log("sleeping");
+                //         await wait();
+                //         console.log("wait finished");
+                //     } else if (numRetries > 2) {
+                //         numRetries++;
+                //         connection = joinVoiceChannel({
+                //             channelId: channel.id,
+                //             guildId: channel.guild.id,
+                //             adapterCreator: channel.guild.voiceAdapterCreator,
+                //         });
+                //     } else {
+                //         numRetries++;
+                //     }
+                // }
+                // console.log(
+                //     `Connection transitioned from ${oldState.status} to ${newState.status}`
+                // );
             }
         );
 
         connection.on(VoiceConnectionStatus.Ready, (oldState, newState) => {
-            player.unpause();
-            console.log("Connection is in the Ready state!");
+            numRetries = 0;
+            console.log(`numRetries reset to: ${numRetries}`);
+            player.play(resource);
+            // connection.subscribe(player);
+            // player.unpause();
+            console.log("Connection is in the Ready state, playing audio!");
         });
 
-        // connection.on(VoiceConnectionStatus.Signalling, () => {
-        //     console.log(
-        //         "connection in signalling status"
-        //     );
-        //     // connection = joinVoiceChannel({
-        //     //     channelId: channel.id,
-        //     //     guildId: channel.guild.id,
-        //     //     adapterCreator: channel.guild.voiceAdapterCreator,
-        //     // });
-        //     // connection.subscribe(player);
-        // });
         connection.on(
             VoiceConnectionStatus.Disconnected,
             async (oldState, newState) => {
@@ -245,6 +334,7 @@ module.exports = {
                 }
             }
         );
+
         player.on(AudioPlayerStatus.Idle, (oldState, newState) => {
             console.log("Audio player finished.");
             subscription?.unsubscribe();
@@ -258,14 +348,12 @@ module.exports = {
         player.on(AudioPlayerStatus.Playing, (oldState, newState) => {
             console.log("Audio player is in the Playing state!");
         });
-        // player.on("stateChange", (oldState: { status: any; }, newState: { status: any; }) => {
-        //     console.log(
-        //         `Audio player transitioned from ${oldState.status} to ${newState.status}`
-        //     );
-        // });
-        // v6
-        // v5
 
-        await interaction.reply({ content: `Playing audio`, ephemeral: true });
+        // console.dir(interaction);
+        // console.log(interaction);
+        await interaction.reply({
+            content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
+            ephemeral: false,
+        });
     },
 };
