@@ -80,7 +80,11 @@ module.exports = {
         const permissions: any = channel?.permissionsFor(
             interaction.client.user
         );
+        const callerId = interaction.user.id;
 
+        // console.log(`interaction.client.user: ${interaction.client.user}`);
+        // console.log(`permissions: ${permissions}`);
+        // If the bot already has a voice connection, it is not available
         const voiceConnection = getVoiceConnection(guild.id);
         if (voiceConnection) {
             await interaction.reply({
@@ -90,6 +94,7 @@ module.exports = {
             });
             return;
         }
+
         // Get url argument
         const ytUrl = interaction.options.get("url").value;
         console.log(
@@ -111,22 +116,30 @@ module.exports = {
 
         // Notify user of missing permissions and return
         if (!permissions.has("CONNECT")) {
-            await interaction.reply("I cannot connect to this channel");
+            await interaction.reply({
+                content: "I cannot connect to this channel",
+                ephemeral: true,
+            });
             return;
         }
         if (!permissions.has("SPEAK")) {
-            await interaction.reply("I cannot speak in this channel.");
+            await interaction.reply({
+                content: "I cannot speak in this channel.",
+                ephemeral: true,
+            });
             return;
         }
 
         voiceChannels?.forEach((c) => {
             if (c.type === 2) {
                 // 2 = voice
-                if (c.name === "General") {
-                    // Play in General for now, should change this to check for id or something..
-                    channel = c;
-                    return;
-                }
+                c.members.forEach((member) => {
+                    // Find caller's channel
+                    if (member.id === callerId) {
+                        channel = c;
+                        return;
+                    }
+                });
             }
         });
 
@@ -195,28 +208,14 @@ module.exports = {
         // });
 
         // Create audio player
+
         const player = createAudioPlayer();
 
-        // Begin playing resource with AudioPlayer
-        // console.log("playing resource");
-        // player.play(resource);
         console.log("subscribing to AudioPlayer");
         const subscription = connection.subscribe(player); // subscribes the player to the connection to play the audio in the current connection
 
         player.on("error", (error: any) => console.error(error));
 
-        // function sleep(ms: number) {
-        //     return new Promise((resolve) => setInterval(resolve, ms));
-        // }
-
-        // async function wait() {
-        //     console.log("Waiting for 3000ms...");
-        //     await sleep(3000);
-        //     console.log("3000ms have passed.");
-        // }
-
-        // wait();
-        let numRetries = 0;
         connection.on(
             "stateChange",
             async (oldState: { status: any }, newState: { status: any }) => {
@@ -249,7 +248,7 @@ module.exports = {
                             console.log("Audio player is stuck on connecting");
                             // Take appropriate action, such as disconnecting and reconnecting the bot
                             connection.disconnect();
-                            connection.rejoin();
+                            connection.configureNetworking();
                         }
                     }, 3000); // 3 seconds
                 } else {
@@ -260,51 +259,10 @@ module.exports = {
                         connectingTimeout = null;
                     }
                 }
-                // console.log(`numRetries: ${numRetries}`);
-                // if (
-                //     oldState.status === "ready" &&
-                //     newState.status === "connecting"
-                // ) {
-                //     connection.configureNetworking();
-                // } else if (
-                //     oldState.status === "connecting" &&
-                //     newState.status === "connecting"
-                // ) {
-                //     numRetries++;
-                //     if (numRetries > 4) {
-                //         connection.configureNetworking();
-                //     }
-                // }
-                // if (
-                //     oldState.status === "connecting" &&
-                //     newState.status === "connecting"
-                // ) {
-                //     console.log(`numRetries: ${numRetries}`);
-                //     if (numRetries >= 0 && numRetries <= 2) {
-                //         numRetries++;
-                //         console.log("sleeping");
-                //         await wait();
-                //         console.log("wait finished");
-                //     } else if (numRetries > 2) {
-                //         numRetries++;
-                //         connection = joinVoiceChannel({
-                //             channelId: channel.id,
-                //             guildId: channel.guild.id,
-                //             adapterCreator: channel.guild.voiceAdapterCreator,
-                //         });
-                //     } else {
-                //         numRetries++;
-                //     }
-                // }
-                // console.log(
-                //     `Connection transitioned from ${oldState.status} to ${newState.status}`
-                // );
             }
         );
 
         connection.on(VoiceConnectionStatus.Ready, (oldState, newState) => {
-            numRetries = 0;
-            console.log(`numRetries reset to: ${numRetries}`);
             player.play(resource);
             // connection.subscribe(player);
             // player.unpause();
