@@ -2,7 +2,6 @@ import {
     createAudioPlayer,
     joinVoiceChannel,
     createAudioResource,
-    StreamType,
     AudioResource,
     generateDependencyReport,
     VoiceConnectionStatus,
@@ -14,19 +13,11 @@ import {
 } from "@discordjs/voice";
 
 import {
-    BaseInteraction,
-    Channel,
-    ChatInputCommandInteraction,
-    CommandInteraction,
-    DMChannel,
     Guild,
-    Interaction,
-    PartialDMChannel,
-    PermissionResolvable,
+    GuildTextBasedChannel,
     SlashCommandBuilder,
     SlashCommandStringOption,
-    TextBasedChannel,
-    TextChannel,
+    VoiceChannel,
 } from "discord.js";
 import ytdl from "ytdl-core";
 import fs from "fs";
@@ -46,12 +37,6 @@ function downloadAudio(ytUrl: string): Promise<string> {
         stream.pipe(fs.createWriteStream("audio.mp3"));
     });
 }
-
-// function sleep(ms: number) {
-//     return new Promise((resolve) => {
-//         setTimeout(resolve, ms);
-//     });
-// }
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -75,17 +60,12 @@ module.exports = {
     async execute(interaction: any) {
         // Get information about caller
         const guild: Guild | null = interaction.guild;
-        let channel: any = interaction.channel;
+        let textChannel: GuildTextBasedChannel = interaction.channel;
         const voiceChannels = guild?.channels.cache;
-        const permissions: any = channel?.permissionsFor(
-            interaction.client.user
-        );
         const callerId = interaction.user.id;
 
-        // console.log(`interaction.client.user: ${interaction.client.user}`);
-        // console.log(`permissions: ${permissions}`);
         // If the bot already has a voice connection, it is not available
-        const voiceConnection = getVoiceConnection(guild.id);
+        const voiceConnection: VoiceConnection = getVoiceConnection(guild.id);
         if (voiceConnection) {
             await interaction.reply({
                 content:
@@ -114,6 +94,31 @@ module.exports = {
             return;
         }
 
+        let voiceChannel: VoiceChannel | null = null;
+        voiceChannels?.forEach((c) => {
+            if (c.type === 2) {
+                // 2 = voice
+                c.members.forEach((member) => {
+                    // Find caller's channel
+                    if (member.id === callerId) {
+                        voiceChannel = c;
+                        return;
+                    }
+                });
+            }
+        });
+        // User is not in a voice channel, alert and return
+        if (!voiceChannel) {
+            await interaction.reply({
+                content: "You are not connected to a voice channel!",
+                ephemeral: true,
+            });
+            return;
+        }
+        const permissions: any = voiceChannel.permissionsFor(
+            interaction.client.user
+        );
+
         // Notify user of missing permissions and return
         if (!permissions.has("CONNECT")) {
             await interaction.reply({
@@ -129,19 +134,6 @@ module.exports = {
             });
             return;
         }
-
-        voiceChannels?.forEach((c) => {
-            if (c.type === 2) {
-                // 2 = voice
-                c.members.forEach((member) => {
-                    // Find caller's channel
-                    if (member.id === callerId) {
-                        channel = c;
-                        return;
-                    }
-                });
-            }
-        });
 
         // Get resource
         const resourcePath = await downloadAudio(ytUrl);
@@ -193,9 +185,9 @@ module.exports = {
 
         // Join the voice channel
         let connection = joinVoiceChannel({
-            channelId: channel.id,
-            guildId: channel.guild.id,
-            adapterCreator: channel.guild.voiceAdapterCreator,
+            channelId: voiceChannel.id,
+            guildId: voiceChannel.guild.id,
+            adapterCreator: voiceChannel.guild.voiceAdapterCreator,
             // debug: true,
         });
 
@@ -209,7 +201,7 @@ module.exports = {
 
         // Create audio player
 
-        const player = createAudioPlayer();
+        const player: AudioPlayer = createAudioPlayer();
 
         console.log("subscribing to AudioPlayer");
         const subscription = connection.subscribe(player); // subscribes the player to the connection to play the audio in the current connection
@@ -307,8 +299,6 @@ module.exports = {
             console.log("Audio player is in the Playing state!");
         });
 
-        // console.dir(interaction);
-        // console.log(interaction);
         await interaction.reply({
             content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
             ephemeral: false,
