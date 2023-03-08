@@ -24,7 +24,7 @@ import {
     MessageActionRowComponent,
 } from "discord.js";
 
-import ytdl from "ytdl-core";
+import ytdl, { videoInfo } from "ytdl-core";
 import fs from "fs";
 import { getVideoDuration } from "../functions/getVideoDuration";
 // Wrap ytdl in a Promise
@@ -110,10 +110,10 @@ module.exports = {
             return;
         }
         let voiceChannel: VoiceChannel | null = null;
-        voiceChannels?.forEach((c) => {
+        voiceChannels?.forEach(c => {
             if (c.type === 2) {
                 // 2 = voice
-                c.members.forEach((member) => {
+                c.members.forEach(member => {
                     // Find caller's channel
                     if (member.id === callerId) {
                         voiceChannel = c;
@@ -152,7 +152,16 @@ module.exports = {
 
         // Get resource
         const resourcePath = await downloadAudio(ytUrl);
-        const songInfo = await ytdl.getInfo(ytUrl);
+        const songInfo: videoInfo = await ytdl.getInfo(ytUrl);
+        // console.log(
+        //     `songInfo.videoDetails.thumbnail: ${songInfo.videoDetails.thumbnail}`
+        // );
+        // console.log("songInfo.videoDetails.thumbailS:");
+        // console.dir(songInfo.videoDetails.thumbnails);
+        // const thumbnail_xs = songInfo.videoDetails.thumbnails[0].url;
+        // const thumbnail_sm = songInfo.videoDetails.thumbnails[1].url;
+        const thumbnail_md = songInfo.videoDetails.thumbnails[2].url;
+        // const thumbnail_lg = songInfo.videoDetails.thumbnails[3].url;
         const songTitle = songInfo.videoDetails.title;
         const song = {
             title: songTitle,
@@ -216,7 +225,7 @@ module.exports = {
             // debug: true,
         });
 
-        connection.on("error", (error) => {
+        connection.on("error", error => {
             console.error(`VoiceConnection error: ${error}`);
         });
 
@@ -264,8 +273,16 @@ module.exports = {
                         ) {
                             console.log("Audio player is stuck on connecting");
                             // Take appropriate action, such as disconnecting and reconnecting the bot
-                            connection.disconnect();
                             connection.configureNetworking();
+                            // connection.disconnect();
+                            // connection.destroy();
+                            // connection = joinVoiceChannel({
+                            //     channelId: voiceChannel.id,
+                            //     guildId: voiceChannel.guild.id,
+                            //     adapterCreator:
+                            //         voiceChannel.guild.voiceAdapterCreator,
+                            //     // debug: true,
+                            // });
                         }
                     }, 3000); // 3 seconds
                 } else {
@@ -324,37 +341,45 @@ module.exports = {
             console.log("Audio player is in the Playing state!");
         });
 
-        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-                .setCustomId("stop_button")
-                .setLabel("Stop")
-                .setStyle(ButtonStyle.Danger)
-        );
+        const button = new ButtonBuilder()
+            .setCustomId("stop_button")
+            .setLabel("Stop")
+            .setStyle(ButtonStyle.Danger);
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
         // await interaction.editReply({
         //     content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
         //     components: [row],
         // });
-        const filter = (interaction) => interaction.customId === "stop_button";
+        const filter = interaction => interaction.customId === "stop_button";
 
         const collector = interaction.channel.createMessageComponentCollector({
             filter,
             time: videoDuration * 1000,
         });
 
-        collector.on("collect", async (interaction) => {
+        collector.on("collect", async interaction => {
             if (interaction.customId === "stop_button") {
+                console.log(button);
+                button.setDisabled(true);
                 const connection = getVoiceConnection(interaction.guild.id);
                 connection.destroy();
                 collector.stop();
-                interaction.editReply(`Stopped playing: **${song.title}**`);
+                await interaction.update({
+                    components: [],
+                    content: `Stopped playing: **${song.title}**`,
+                });
             }
         });
 
         const replyOptions = {
-            content: `Now playing: **${song.title}** (${Math.floor(
+            content: `Now playing: **${song.title}** - ${Math.floor(
                 song.duration / 60
-            )}m${song.duration % 60}s)`,
+            )}m${song.duration % 60}s 
+            ${thumbnail_md ? `[](${thumbnail_md})` : ""}`,
+            //${thumbnail_xs ? `[](${thumbnail_xs})` : ""}
+            //${thumbnail_sm ? `[](${thumbnail_sm})` : ""}
+            // ${thumbnail_lg ? `[](${thumbnail_lg})` : ""}`,
             components: [row],
         };
         await interaction.editReply(replyOptions);

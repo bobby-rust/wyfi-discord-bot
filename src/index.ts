@@ -92,6 +92,7 @@ client.on(Events.MessageCreate, async (message: any) => {
 client.on(Events.InteractionCreate, async (interaction: any) => {
     const command = interaction.client.commands.get(interaction.commandName);
 
+    if (interaction.isButton()) return;
     // if (interaction.isButton()) {
     //     console.log(interaction);
     //     // cleanup

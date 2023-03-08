@@ -13,6 +13,7 @@ export const getVideoDuration = async (videoUrl: string): Promise<number> => {
                 data: { items: { contentDetails: { duration: any } }[] };
             }) => {
                 // Extract the length of the video in ISO 8601 format
+                // console.log(response.data.items[0].contentDetails);
                 const duration = response.data.items[0].contentDetails.duration;
                 console.log(duration);
 
