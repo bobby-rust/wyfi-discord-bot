@@ -21,7 +21,7 @@ import {
 } from "discord.js";
 import ytdl from "ytdl-core";
 import fs from "fs";
-
+import { getVideoDuration } from "../functions/getVideoDuration";
 // Wrap ytdl in a Promise
 function downloadAudio(ytUrl: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -67,7 +67,7 @@ module.exports = {
         // If the bot already has a voice connection, it is not available
         const voiceConnection: VoiceConnection = getVoiceConnection(guild.id);
         if (voiceConnection) {
-            await interaction.reply({
+            await interaction.editReply({
                 content:
                     "The bot is currently not available for a song request",
                 ephemeral: true,
@@ -87,13 +87,23 @@ module.exports = {
                 /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.?be)\/.+$/gi
             )
         ) {
-            interaction.reply({
+            interaction.editReply({
                 content: "URL endpoint must be YouTube",
                 ephemeral: true,
             });
             return;
         }
 
+        const videoDuration = await getVideoDuration(ytUrl);
+        console.log(`videoDuration: ${videoDuration}`);
+        if (videoDuration > 600) {
+            console.log("invalid length");
+            await interaction.editReply({
+                content: "Video length exceeds the 10 minute limit",
+                ephemeral: true,
+            });
+            return;
+        }
         let voiceChannel: VoiceChannel | null = null;
         voiceChannels?.forEach((c) => {
             if (c.type === 2) {
@@ -109,7 +119,7 @@ module.exports = {
         });
         // User is not in a voice channel, alert and return
         if (!voiceChannel) {
-            await interaction.reply({
+            await interaction.editReply({
                 content: "You are not connected to a voice channel!",
                 ephemeral: true,
             });
@@ -121,14 +131,14 @@ module.exports = {
 
         // Notify user of missing permissions and return
         if (!permissions.has("CONNECT")) {
-            await interaction.reply({
+            await interaction.editReply({
                 content: "I cannot connect to this channel",
                 ephemeral: true,
             });
             return;
         }
         if (!permissions.has("SPEAK")) {
-            await interaction.reply({
+            await interaction.editReply({
                 content: "I cannot speak in this channel.",
                 ephemeral: true,
             });
@@ -147,7 +157,7 @@ module.exports = {
         if (interaction.options.get("volume")) {
             let volumeArg = interaction.options.get("volume").value;
             if (volumeArg.length > 1 && !volumeArg.includes(".")) {
-                interaction.reply({
+                interaction.editReply({
                     content: "Volume argument must be a number.",
                     ephemeral: true,
                 });
@@ -160,7 +170,7 @@ module.exports = {
                 }
                 console.log(volumeArg);
                 if (volumeArg < 0 || volumeArg > 0.5) {
-                    interaction.reply({
+                    interaction.editReply({
                         content:
                             "Volume argument must be between 0 and 0.5 inclusive.",
                         ephemeral: true,
@@ -171,7 +181,7 @@ module.exports = {
                 }
             } catch (err) {
                 console.log(err);
-                interaction.reply({
+                interaction.editReply({
                     content: `An error has occurred: ${err}`,
                     ephemeral: true,
                 });
@@ -299,7 +309,7 @@ module.exports = {
             console.log("Audio player is in the Playing state!");
         });
 
-        await interaction.reply({
+        await interaction.editReply({
             content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
             ephemeral: false,
         });

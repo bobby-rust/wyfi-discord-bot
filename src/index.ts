@@ -80,10 +80,12 @@ for (const file of commandFiles) {
 }
 
 client.on(Events.MessageCreate, async (message: any) => {
-    if (message.content === "!stop") {
+    if (message.content.toLowerCase() === "!stop") {
         console.log("message is !stop");
+        // cleanup
         const connection = getVoiceConnection(message.guild.id);
         connection?.destroy();
+        message.delete();
     }
 });
 
@@ -93,6 +95,11 @@ client.on(Events.InteractionCreate, async (interaction: any) => {
     // if (command.data.name == "ce") {
     //     console.log("Create event called");
     // }
+
+    if (command.data.name === "play" || command.data.name === "ce") {
+        // long running commands, defer reply
+        await interaction.deferReply();
+    }
 
     if (!command) {
         console.error(

@@ -5,6 +5,9 @@ module.exports = {
         .setName("hello")
         .setDescription("Replies with Hello, world!"),
     async execute(interaction: any) {
-        await interaction.reply({ content: "Hello, world!", ephemeral: true });
+        await interaction.reply({
+            content: "Hello, world!",
+            ephemeral: true,
+        });
     },
 };

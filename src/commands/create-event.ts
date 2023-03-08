@@ -9,7 +9,7 @@ import {
     VoiceChannel,
 } from "discord.js";
 
-import { scrape_ufc } from "../../scraping/scrape_ufc";
+import { scrape_ufc } from "../scraping/scrape_ufc";
 
 import { GuildScheduledEventManager } from "discord.js";
 // declare module "discord.js" {
@@ -82,7 +82,7 @@ module.exports = {
         // console.log(`made it out of loop. channel: ${channel}`);
 
         if (interaction.options.getString("type").toLowerCase() !== "ufc") {
-            await interaction.reply({
+            await interaction.editReply({
                 content:
                     "Create event cancelled. Currently only UFC events are supported.",
                 ephemeral: true,
@@ -110,6 +110,6 @@ module.exports = {
 
         console.log(eventInfo);
 
-        await interaction.reply(`Event created: ${event.name}`);
+        await interaction.editReply(`Event created: ${event.name}`);
     },
 };
