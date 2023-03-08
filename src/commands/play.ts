@@ -18,7 +18,12 @@ import {
     SlashCommandBuilder,
     SlashCommandStringOption,
     VoiceChannel,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+    MessageActionRowComponent,
 } from "discord.js";
+
 import ytdl from "ytdl-core";
 import fs from "fs";
 import { getVideoDuration } from "../functions/getVideoDuration";
@@ -147,6 +152,16 @@ module.exports = {
 
         // Get resource
         const resourcePath = await downloadAudio(ytUrl);
+        const songInfo = await ytdl.getInfo(ytUrl);
+        const songTitle = songInfo.videoDetails.title;
+        const song = {
+            title: songTitle,
+            url: ytUrl,
+            duration: videoDuration,
+            requester: interaction.author,
+            connection: null,
+            dispatcher: null,
+        };
 
         // Create audio resource
         const resource: AudioResource = createAudioResource(resourcePath, {
@@ -309,9 +324,39 @@ module.exports = {
             console.log("Audio player is in the Playing state!");
         });
 
-        await interaction.editReply({
-            content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
-            ephemeral: false,
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId("stop_button")
+                .setLabel("Stop")
+                .setStyle(ButtonStyle.Danger)
+        );
+
+        // await interaction.editReply({
+        //     content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
+        //     components: [row],
+        // });
+        const filter = (interaction) => interaction.customId === "stop_button";
+
+        const collector = interaction.channel.createMessageComponentCollector({
+            filter,
+            time: videoDuration * 1000,
         });
+
+        collector.on("collect", async (interaction) => {
+            if (interaction.customId === "stop_button") {
+                const connection = getVoiceConnection(interaction.guild.id);
+                connection.destroy();
+                collector.stop();
+                interaction.editReply(`Stopped playing: **${song.title}**`);
+            }
+        });
+
+        const replyOptions = {
+            content: `Now playing: **${song.title}** (${Math.floor(
+                song.duration / 60
+            )}m${song.duration % 60}s)`,
+            components: [row],
+        };
+        await interaction.editReply(replyOptions);
     },
 };

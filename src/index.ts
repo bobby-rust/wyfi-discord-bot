@@ -92,6 +92,15 @@ client.on(Events.MessageCreate, async (message: any) => {
 client.on(Events.InteractionCreate, async (interaction: any) => {
     const command = interaction.client.commands.get(interaction.commandName);
 
+    // if (interaction.isButton()) {
+    //     console.log(interaction);
+    //     // cleanup
+    //     const connection = getVoiceConnection(interaction.guild.id);
+    //     connection?.destroy();
+    //     await interaction.reply({ content: "Song stopped", ephemeral: true });
+    //     return;
+    // }
+
     // if (command.data.name == "ce") {
     //     console.log("Create event called");
     // }
