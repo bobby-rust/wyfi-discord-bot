@@ -22,6 +22,11 @@ import {
     ButtonBuilder,
     ButtonStyle,
     MessageActionRowComponent,
+    Events,
+    Message,
+    ButtonComponent,
+    TextChannel,
+    MessageManager,
 } from "discord.js";
 
 import ytdl, { videoInfo } from "ytdl-core";
@@ -65,11 +70,19 @@ module.exports = {
         ),
     async execute(interaction: any) {
         // Get information about caller
+        const { client } = require("../index");
         const guild: Guild | null = interaction.guild;
-        let textChannel: GuildTextBasedChannel = interaction.channel;
+        let textChannel: TextChannel = interaction.channel;
+        const msgManager: MessageManager = textChannel.messages;
+        // const messages = await msgManager.fetch({
+        //     limit: 3,
+        //     cache: false,
+        //     around: "",
+        // });
+        // console.log(`messages: ${messages}`);
+        // console.dir(messages);
         const voiceChannels = guild?.channels.cache;
         const callerId = interaction.user.id;
-
         // Get caller's voice channel
         let voiceChannel: VoiceChannel | null = null;
         voiceChannels?.forEach((c) => {
@@ -300,6 +313,9 @@ module.exports = {
         connection.on(
             VoiceConnectionStatus.Disconnected,
             async (oldState, newState) => {
+                // const message = oldState.channel.guild.channels.cache
+                //     .get(oldState.channel.parentId)
+                //     .messages.cache.get(messageId);
                 try {
                     await Promise.race([
                         entersState(
@@ -321,13 +337,44 @@ module.exports = {
             }
         );
 
+        client.on(Events.InteractionCreate, async (interaction) => {
+            console.log("interaction");
+            if (interaction.isButton()) {
+                const buttonCustomId = interaction.customId;
+                const button = interaction.message.components.find(
+                    (component) =>
+                        component.type === "BUTTON" &&
+                        component.customId === buttonCustomId
+                );
+
+                if (button) {
+                    // Do something with the button
+                    await interaction.update({
+                        components: [],
+                        content: `Finished playing: **${song.title}**`,
+                    });
+                }
+            }
+        });
+
         // Handle player state changes
         player.on("error", (error: any) => console.error(error));
 
-        player.on(AudioPlayerStatus.Idle, (oldState, newState) => {
+        player.on(AudioPlayerStatus.Idle, async (oldState, newState: any) => {
             console.log("Audio player finished.");
+            console.log(`buttons: ${buttons}`);
+            const messages = await msgManager.fetch({
+                limit: 3,
+                cache: false,
+                around: buttons[0],
+            });
+            const msg = messages.get(buttons[0]);
+            msg.edit({ components: [] });
+            // console.log(messages);
+            // console.dir(messages);
             subscription?.unsubscribe();
             connection.destroy();
+            buttons.pop();
         });
 
         player.on("stateChange", (oldState, newState) => {
@@ -345,7 +392,7 @@ module.exports = {
             .setStyle(ButtonStyle.Danger);
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
-        // TODO - Cleanup button after song is finished playing
+        const buttons = [];
 
         // Create collector
         const filter = (interaction) => interaction.customId === "stop_button";
@@ -361,17 +408,17 @@ module.exports = {
                 button.setDisabled(true);
                 const connection = getVoiceConnection(interaction.guild.id);
                 connection.destroy();
-                collector.stop();
                 await interaction.update({
                     components: [],
                     content: `Stopped playing: **${song.title}**`,
                 });
+                collector.stop();
             }
         });
 
         // Interaction reply
         const replyOptions = {
-            content: `Request received from ${interaction.user.toString()}: Now playing: **${
+            content: `${interaction.user.toString()} is now playing: **${
                 song.title
             }** - ${Math.floor(song.duration / 60)}m${song.duration % 60}s 
             ${thumbnail_md ? `[](${thumbnail_md})` : ""}`,
@@ -380,6 +427,7 @@ module.exports = {
             // ${thumbnail_lg ? `[](${thumbnail_lg})` : ""}`,
             components: [row],
         };
-        await interaction.editReply(replyOptions);
+        const songReply = await interaction.editReply(replyOptions);
+        buttons.push(songReply.id);
     },
 };

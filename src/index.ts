@@ -6,7 +6,7 @@ import path from "node:path";
 import chokidar from "chokidar";
 
 // Create a new client instance
-export const client = new Client({
+const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
@@ -17,6 +17,9 @@ export const client = new Client({
     ],
 });
 
+module.exports = {
+    client,
+};
 client.once(Events.ClientReady, (t_client: any) => {
     console.log(`Ready! Logged in as ${t_client.user.tag}`);
 });

@@ -4,22 +4,9 @@ import {
     GuildScheduledEventCreateOptions,
     GuildScheduledEventPrivacyLevel,
     GuildScheduledEventEntityType,
-    GuildVoiceChannelResolvable,
-    ChannelType,
-    VoiceChannel,
 } from "discord.js";
 
 import { scrape_ufc } from "../scraping/scrape_ufc";
-
-import { GuildScheduledEventManager } from "discord.js";
-// declare module "discord.js" {
-//     interface Guild {
-//         scheduleEvent(
-//             date: Date,
-//             options?: GuildScheduledEventCreateOptions
-//         ): Promise<GuildScheduledEvent>;
-//     }
-// }
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -66,20 +53,13 @@ module.exports = {
         const voiceChannels = guild.channels.cache;
 
         voiceChannels.forEach((c) => {
-            // console.log(c);
             if (c.type === 2) {
-                console.log(c);
                 if (c.name === "General") {
                     channel = c;
-                    console.log("found channel named general.");
-                    console.log(`channel id found: ${channel}`);
-                    // console.log(`channel in loop: ${channel}`);
                     return;
                 }
             }
         });
-
-        // console.log(`made it out of loop. channel: ${channel}`);
 
         if (interaction.options.getString("type").toLowerCase() !== "ufc") {
             await interaction.editReply({
@@ -90,12 +70,8 @@ module.exports = {
             return;
         }
 
-        console.log("executing scrape()");
         const eventInfo = await scrape_ufc();
 
-        console.log(`channel.id: ${channel.id}`);
-
-        // console.log(eventInfo);
         const eventParams: GuildScheduledEventCreateOptions = {
             name: eventInfo.headline.headline,
             scheduledStartTime: eventInfo.date.date + " " + eventInfo.date.time,
@@ -106,9 +82,20 @@ module.exports = {
             channel: channel.id,
         };
 
-        const event = await guild.scheduledEvents.create(eventParams);
+        // Check for duplicate event
+        const events = guild.scheduledEvents.cache;
+        for (const value of events.values()) {
+            if (value.name === eventParams.name) {
+                interaction.editReply({
+                    content: "This event already exists",
+                    ephemeral: true,
+                });
+                return;
+            }
+        }
 
-        console.log(eventInfo);
+        // No duplicate, create event
+        const event = await guild.scheduledEvents.create(eventParams);
 
         await interaction.editReply(`Event created: ${event.name}`);
     },
