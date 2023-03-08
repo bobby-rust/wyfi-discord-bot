@@ -27,6 +27,7 @@ import {
 import ytdl, { videoInfo } from "ytdl-core";
 import fs from "fs";
 import { getVideoDuration } from "../functions/getVideoDuration";
+
 // Wrap ytdl in a Promise
 function downloadAudio(ytUrl: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -69,6 +70,29 @@ module.exports = {
         const voiceChannels = guild?.channels.cache;
         const callerId = interaction.user.id;
 
+        // Get caller's voice channel
+        let voiceChannel: VoiceChannel | null = null;
+        voiceChannels?.forEach((c) => {
+            if (c.type === 2) {
+                // 2 = voice
+                c.members.forEach((member) => {
+                    // Find caller's channel
+                    if (member.id === callerId) {
+                        voiceChannel = c;
+                        return;
+                    }
+                });
+            }
+        });
+        // User is not in a voice channel, alert and return
+        if (!voiceChannel) {
+            await interaction.editReply({
+                content: "You are not connected to a voice channel!",
+                ephemeral: true,
+            });
+            return;
+        }
+
         // If the bot already has a voice connection, it is not available
         const voiceConnection: VoiceConnection = getVoiceConnection(guild.id);
         if (voiceConnection) {
@@ -93,15 +117,17 @@ module.exports = {
             )
         ) {
             interaction.editReply({
-                content: "URL endpoint must be YouTube",
+                content: "URL endpoint must be a YouTube video",
                 ephemeral: true,
             });
             return;
         }
 
+        // Ensure video length is within limit
         const videoDuration = await getVideoDuration(ytUrl);
         console.log(`videoDuration: ${videoDuration}`);
         if (videoDuration > 600) {
+            // > 10 minutes limit, arbitrarily chosen; can adjust based on user feedback
             console.log("invalid length");
             await interaction.editReply({
                 content: "Video length exceeds the 10 minute limit",
@@ -109,40 +135,21 @@ module.exports = {
             });
             return;
         }
-        let voiceChannel: VoiceChannel | null = null;
-        voiceChannels?.forEach((c) => {
-            if (c.type === 2) {
-                // 2 = voice
-                c.members.forEach((member) => {
-                    // Find caller's channel
-                    if (member.id === callerId) {
-                        voiceChannel = c;
-                        return;
-                    }
-                });
-            }
-        });
-        // User is not in a voice channel, alert and return
-        if (!voiceChannel) {
-            await interaction.editReply({
-                content: "You are not connected to a voice channel!",
-                ephemeral: true,
-            });
-            return;
-        }
-        const permissions: any = voiceChannel.permissionsFor(
+
+        // Get bot's permssions for the caller's voice channel
+        const botPermissions: any = voiceChannel.permissionsFor(
             interaction.client.user
         );
 
         // Notify user of missing permissions and return
-        if (!permissions.has("CONNECT")) {
+        if (!botPermissions.has("CONNECT")) {
             await interaction.editReply({
                 content: "I cannot connect to this channel",
                 ephemeral: true,
             });
             return;
         }
-        if (!permissions.has("SPEAK")) {
+        if (!botPermissions.has("SPEAK")) {
             await interaction.editReply({
                 content: "I cannot speak in this channel.",
                 ephemeral: true,
@@ -152,15 +159,13 @@ module.exports = {
 
         // Get resource
         const resourcePath = await downloadAudio(ytUrl);
+
+        // Get resource information
         const songInfo: videoInfo = await ytdl.getInfo(ytUrl);
-        // console.log(
-        //     `songInfo.videoDetails.thumbnail: ${songInfo.videoDetails.thumbnail}`
-        // );
-        // console.log("songInfo.videoDetails.thumbailS:");
-        // console.dir(songInfo.videoDetails.thumbnails);
+        // Thumbnail images - currently using size medium, but others are available
+        const thumbnail_md = songInfo.videoDetails.thumbnails[2].url;
         // const thumbnail_xs = songInfo.videoDetails.thumbnails[0].url;
         // const thumbnail_sm = songInfo.videoDetails.thumbnails[1].url;
-        const thumbnail_md = songInfo.videoDetails.thumbnails[2].url;
         // const thumbnail_lg = songInfo.videoDetails.thumbnails[3].url;
         const songTitle = songInfo.videoDetails.title;
         const song = {
@@ -212,7 +217,7 @@ module.exports = {
                 return;
             }
         } else {
-            const volumeArg = 0.05;
+            const volumeArg = 0.05; // No volume argument, default to 0.05
             resource.volume?.setVolume(volumeArg);
             console.log(`volumeArg: ${volumeArg}`);
         }
@@ -225,26 +230,24 @@ module.exports = {
             // debug: true,
         });
 
-        connection.on("error", (error) => {
-            console.error(`VoiceConnection error: ${error}`);
-        });
-
+        // Connection debug messages
         // connection.on("debug", (m) => {
         //     console.log("Voice Debug:", m);
         // });
 
-        // Create audio player
-
+        // Create and subscribe to audio player
         const player: AudioPlayer = createAudioPlayer();
-
-        console.log("subscribing to AudioPlayer");
         const subscription = connection.subscribe(player); // subscribes the player to the connection to play the audio in the current connection
 
-        player.on("error", (error: any) => console.error(error));
+        // Handle connection state changes
+        connection.on("error", (error) => {
+            console.error(`VoiceConnection error: ${error}`);
+        });
 
         connection.on(
             "stateChange",
             async (oldState: { status: any }, newState: { status: any }) => {
+                // Fix for pausing after 60 seconds - see https://github.com/discordjs/discord.js/issues/9185
                 const oldNetworking = Reflect.get(oldState, "networking");
                 const newNetworking = Reflect.get(newState, "networking");
 
@@ -261,6 +264,8 @@ module.exports = {
                 console.log(
                     `connection changed from ${oldState.status} to ${newState.status}`
                 );
+
+                // Handle stuck on connecting
                 let isConnecting = false;
                 let connectingTimeout: NodeJS.Timeout | null = null;
                 if (newState.status === VoiceConnectionStatus.Connecting) {
@@ -274,15 +279,6 @@ module.exports = {
                             console.log("Audio player is stuck on connecting");
                             // Take appropriate action, such as disconnecting and reconnecting the bot
                             connection.configureNetworking();
-                            // connection.disconnect();
-                            // connection.destroy();
-                            // connection = joinVoiceChannel({
-                            //     channelId: voiceChannel.id,
-                            //     guildId: voiceChannel.guild.id,
-                            //     adapterCreator:
-                            //         voiceChannel.guild.voiceAdapterCreator,
-                            //     // debug: true,
-                            // });
                         }
                     }, 3000); // 3 seconds
                 } else {
@@ -298,8 +294,6 @@ module.exports = {
 
         connection.on(VoiceConnectionStatus.Ready, (oldState, newState) => {
             player.play(resource);
-            // connection.subscribe(player);
-            // player.unpause();
             console.log("Connection is in the Ready state, playing audio!");
         });
 
@@ -327,6 +321,9 @@ module.exports = {
             }
         );
 
+        // Handle player state changes
+        player.on("error", (error: any) => console.error(error));
+
         player.on(AudioPlayerStatus.Idle, (oldState, newState) => {
             console.log("Audio player finished.");
             subscription?.unsubscribe();
@@ -341,23 +338,23 @@ module.exports = {
             console.log("Audio player is in the Playing state!");
         });
 
+        // Create UI
         const button = new ButtonBuilder()
             .setCustomId("stop_button")
             .setLabel("Stop")
             .setStyle(ButtonStyle.Danger);
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
-        // await interaction.editReply({
-        //     content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
-        //     components: [row],
-        // });
-        const filter = (interaction) => interaction.customId === "stop_button";
+        // TODO - Cleanup button after song is finished playing
 
+        // Create collector
+        const filter = (interaction) => interaction.customId === "stop_button";
         const collector = interaction.channel.createMessageComponentCollector({
             filter,
             time: song.duration * 1000,
         });
 
+        // Handle stop button interaction
         collector.on("collect", async (interaction) => {
             if (interaction.customId === "stop_button") {
                 console.log(button);
@@ -372,10 +369,11 @@ module.exports = {
             }
         });
 
+        // Interaction reply
         const replyOptions = {
-            content: `Now playing: **${song.title}** - ${Math.floor(
-                song.duration / 60
-            )}m${song.duration % 60}s 
+            content: `Request received from ${interaction.user.toString()}: Now playing: **${
+                song.title
+            }** - ${Math.floor(song.duration / 60)}m${song.duration % 60}s 
             ${thumbnail_md ? `[](${thumbnail_md})` : ""}`,
             //${thumbnail_xs ? `[](${thumbnail_xs})` : ""}
             //${thumbnail_sm ? `[](${thumbnail_sm})` : ""}
