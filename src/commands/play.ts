@@ -110,10 +110,10 @@ module.exports = {
             return;
         }
         let voiceChannel: VoiceChannel | null = null;
-        voiceChannels?.forEach(c => {
+        voiceChannels?.forEach((c) => {
             if (c.type === 2) {
                 // 2 = voice
-                c.members.forEach(member => {
+                c.members.forEach((member) => {
                     // Find caller's channel
                     if (member.id === callerId) {
                         voiceChannel = c;
@@ -225,7 +225,7 @@ module.exports = {
             // debug: true,
         });
 
-        connection.on("error", error => {
+        connection.on("error", (error) => {
             console.error(`VoiceConnection error: ${error}`);
         });
 
@@ -351,14 +351,14 @@ module.exports = {
         //     content: `${interaction.user.toString()} requested ${ytUrl} :notes: Playing audio!`,
         //     components: [row],
         // });
-        const filter = interaction => interaction.customId === "stop_button";
+        const filter = (interaction) => interaction.customId === "stop_button";
 
         const collector = interaction.channel.createMessageComponentCollector({
             filter,
-            time: videoDuration * 1000,
+            time: song.duration * 1000,
         });
 
-        collector.on("collect", async interaction => {
+        collector.on("collect", async (interaction) => {
             if (interaction.customId === "stop_button") {
                 console.log(button);
                 button.setDisabled(true);
