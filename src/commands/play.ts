@@ -27,6 +27,7 @@ import {
     ButtonComponent,
     TextChannel,
     MessageManager,
+    EmbedBuilder,
 } from "discord.js";
 
 import ytdl, { videoInfo } from "ytdl-core";
@@ -122,7 +123,7 @@ module.exports = {
         }
 
         // Get arguments
-        const queryArg = interaction.options.get("query");
+        const queryArg = interaction.options.get("search");
         const urlArg = interaction.options.get("url");
         let searchQuery: string;
         let ytUrl: string;
@@ -140,7 +141,7 @@ module.exports = {
             try {
                 videoDuration = vidTmp.duration;
             } catch (err) {
-                interaction.reply({
+                interaction.editReply({
                     content: `Could not find a video within the 10 minute time limit`,
                     ephemeral: true,
                 });
@@ -223,16 +224,16 @@ module.exports = {
         // Get resource information
         const songInfo: videoInfo = await ytdl.getInfo(ytUrl);
         // Thumbnail images - currently using size medium, but others are available
-        const thumbnail_md = songInfo.videoDetails.thumbnails[2].url;
+        // const thumbnail_md = songInfo.videoDetails.thumbnails[2].url;
         // const thumbnail_xs = songInfo.videoDetails.thumbnails[0].url;
         // const thumbnail_sm = songInfo.videoDetails.thumbnails[1].url;
-        // const thumbnail_lg = songInfo.videoDetails.thumbnails[3].url;
+        const thumbnail_lg = songInfo.videoDetails.thumbnails[3].url;
         const songTitle = songInfo.videoDetails.title;
         const song = {
             title: songTitle,
             url: ytVid.url,
             duration: ytVid.duration,
-            requester: interaction.author,
+            requester: interaction.user,
             connection: null,
             dispatcher: null,
         };
@@ -413,6 +414,50 @@ module.exports = {
         });
 
         // Create UI
+        const embed = new EmbedBuilder()
+            .setColor(0x000000)
+            .setTitle(`Now playing: ${song.title}`)
+            .setURL(`${song.url}`)
+            .setAuthor({
+                name: "DJ WYFI Bot 🤖",
+                iconURL:
+                    "https://www.the-sun.com/wp-content/uploads/sites/6/2022/03/NINTCHDBPICT000468152103-1.jpg?w=620",
+                // url: "https://discord.js.org",
+            })
+            .setDescription(`Requested by: ${song.requester.toString()}`)
+            .setImage(thumbnail_lg)
+            // .setThumbnail(thumbnail_md)
+            .addFields({
+                name: "Duration: ",
+                value: `${Math.floor(song.duration / 60)}m${
+                    song.duration % 60
+                }s`,
+                inline: true,
+            })
+            //     { name: "\u200B", value: "\u200B" },
+            //     {
+            //         name: "Inline field title",
+            //         value: "Some value here",
+            //         inline: true,
+            //     },
+            //     {
+            //         name: "Inline field title",
+            //         value: "Some value here",
+            //         inline: true,
+            //     }
+            // )
+            // .addFields({
+            //     name: "Inline field title",
+            //     value: "Some value here",
+            //     inline: true,
+            // })
+            // .setImage("https://i.imgur.com/AfFp7pu.png")
+            .setTimestamp(new Date());
+        // .setFooter({
+        //     text: "Some footer text here",
+        //     iconURL: "https://i.imgur.com/AfFp7pu.png",
+        // });
+
         const button = new ButtonBuilder()
             .setCustomId("stop_button")
             .setLabel("Stop")
@@ -445,14 +490,15 @@ module.exports = {
 
         // Interaction reply
         const replyOptions = {
-            content: `${interaction.user.toString()} is now playing: **${
-                song.title
-            }** - ${Math.floor(song.duration / 60)}m${song.duration % 60}s 
-            ${thumbnail_md ? `[](${thumbnail_md})` : ""}`,
+            // content: `${interaction.user.toString()} is now playing: **${
+            //     song.title
+            // }** - ${Math.floor(song.duration / 60)}m${song.duration % 60}s
+            // ${thumbnail_md ? `[](${thumbnail_md})` : ""}`,
             //${thumbnail_xs ? `[](${thumbnail_xs})` : ""}
             //${thumbnail_sm ? `[](${thumbnail_sm})` : ""}
             // ${thumbnail_lg ? `[](${thumbnail_lg})` : ""}`,
             components: [row],
+            embeds: [embed],
         };
         const songReply = await interaction.editReply(replyOptions);
         buttons.push(songReply.id);
