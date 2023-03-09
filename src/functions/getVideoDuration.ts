@@ -1,11 +1,17 @@
 const axios = require("axios");
 const { YT_API_KEY } = require("../../config.json");
 
-export const getVideoDuration = async (videoUrl: string): Promise<number> => {
-    const videoId = videoUrl.split("=")[1];
+export const getVideoDuration = async (videoId: string): Promise<number> => {
+    if (
+        videoId.match(
+            /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.?be)\/.+$/gi
+        )
+    ) {
+        // Extract the video ID from the URL
+        videoId = videoId.split("=")[1];
+    }
     const apiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&part=contentDetails&key=${YT_API_KEY}
     `;
-    // Extract the video ID from the URL
     const duration = await axios
         .get(apiUrl)
         .then(

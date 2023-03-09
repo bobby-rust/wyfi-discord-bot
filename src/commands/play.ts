@@ -32,6 +32,7 @@ import {
 import ytdl, { videoInfo } from "ytdl-core";
 import fs from "fs";
 import { getVideoDuration } from "../functions/getVideoDuration";
+import { getSearchResult } from "../functions/getSearchResult";
 
 // Wrap ytdl in a Promise
 function downloadAudio(ytUrl: string): Promise<string> {
@@ -55,9 +56,17 @@ module.exports = {
         .setDescription("Plays audio from YouTube URL")
         .addStringOption((option: SlashCommandStringOption) =>
             option
+                .setName("search")
+                .setDescription(
+                    "The query that will be used to search YouTube. The first result will be played."
+                )
+                .setRequired(false)
+        )
+        .addStringOption((option: SlashCommandStringOption) =>
+            option
                 .setName("url")
                 .setDescription("The YouTube URL of the video to play")
-                .setRequired(true)
+                .setRequired(false)
         )
         .addStringOption(
             (option: SlashCommandStringOption) =>
@@ -74,15 +83,9 @@ module.exports = {
         const guild: Guild | null = interaction.guild;
         let textChannel: TextChannel = interaction.channel;
         const msgManager: MessageManager = textChannel.messages;
-        // const messages = await msgManager.fetch({
-        //     limit: 3,
-        //     cache: false,
-        //     around: "",
-        // });
-        // console.log(`messages: ${messages}`);
-        // console.dir(messages);
         const voiceChannels = guild?.channels.cache;
         const callerId = interaction.user.id;
+
         // Get caller's voice channel
         let voiceChannel: VoiceChannel | null = null;
         voiceChannels?.forEach((c) => {
@@ -97,6 +100,7 @@ module.exports = {
                 });
             }
         });
+
         // User is not in a voice channel, alert and return
         if (!voiceChannel) {
             await interaction.editReply({
@@ -117,33 +121,76 @@ module.exports = {
             return;
         }
 
-        // Get url argument
-        const ytUrl = interaction.options.get("url").value;
-        console.log(
-            `interaction argument: ${interaction.options.get("url").value}`
-        );
-
-        // Ensure URL endpoint is YouTube
-        if (
-            !ytUrl.match(
-                /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.?be)\/.+$/gi
-            )
-        ) {
+        // Get arguments
+        const queryArg = interaction.options.get("query");
+        const urlArg = interaction.options.get("url");
+        let searchQuery: string;
+        let ytUrl: string;
+        let duration: number;
+        let ytVid: { url: string; duration: number };
+        if (queryArg) {
+            // const queryArr: string[] = queryArg.value.split(" ");
+            // if (queryArr.length > 1) {
+            //     searchQuery = queryArr.join("+");
+            // }
+            searchQuery = queryArg.value;
+            const vidTmp = await getSearchResult(searchQuery);
+            console.log(vidTmp);
+            let videoDuration: number;
+            try {
+                videoDuration = vidTmp.duration;
+            } catch (err) {
+                interaction.reply({
+                    content: `Could not find a video within the 10 minute time limit`,
+                    ephemeral: true,
+                });
+                return;
+            }
+            ytUrl = "https://www.youtube.com/watch?v=" + vidTmp.id;
+            // Set yt video obj
+            ytVid = {
+                url: ytUrl,
+                duration: videoDuration,
+            };
+        } else if (urlArg) {
+            ytUrl = interaction.options.get("url").value;
+            console.log(`ytUrl: ${ytUrl}`);
+            // Ensure URL endpoint is YouTube
+            if (
+                !ytUrl.match(
+                    /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.?be)\/.+$/gi
+                )
+            ) {
+                interaction.editReply({
+                    content: "URL endpoint must be a YouTube video",
+                    ephemeral: true,
+                });
+                return;
+            } else {
+                // Ensure video length is within limit
+                const videoDuration = await getVideoDuration(ytUrl);
+                console.log(`videoDuration: ${videoDuration}`);
+                if (videoDuration > 600) {
+                    // > 10 minutes limit, arbitrarily chosen; can adjust based on user feedback
+                    console.log("invalid length");
+                    await interaction.editReply({
+                        content: "Video length exceeds the 10 minute limit",
+                        ephemeral: true,
+                    });
+                    return;
+                }
+                // Set yt video obj
+                ytVid = {
+                    url: ytUrl,
+                    duration: videoDuration,
+                };
+            }
+            console.log(
+                `interaction argument: ${interaction.options.get("url").value}`
+            );
+        } else {
             interaction.editReply({
-                content: "URL endpoint must be a YouTube video",
-                ephemeral: true,
-            });
-            return;
-        }
-
-        // Ensure video length is within limit
-        const videoDuration = await getVideoDuration(ytUrl);
-        console.log(`videoDuration: ${videoDuration}`);
-        if (videoDuration > 600) {
-            // > 10 minutes limit, arbitrarily chosen; can adjust based on user feedback
-            console.log("invalid length");
-            await interaction.editReply({
-                content: "Video length exceeds the 10 minute limit",
+                content: "You must provide either a URL or a search query",
                 ephemeral: true,
             });
             return;
@@ -183,8 +230,8 @@ module.exports = {
         const songTitle = songInfo.videoDetails.title;
         const song = {
             title: songTitle,
-            url: ytUrl,
-            duration: videoDuration,
+            url: ytVid.url,
+            duration: ytVid.duration,
             requester: interaction.author,
             connection: null,
             dispatcher: null,
@@ -336,26 +383,6 @@ module.exports = {
                 }
             }
         );
-
-        client.on(Events.InteractionCreate, async (interaction) => {
-            console.log("interaction");
-            if (interaction.isButton()) {
-                const buttonCustomId = interaction.customId;
-                const button = interaction.message.components.find(
-                    (component) =>
-                        component.type === "BUTTON" &&
-                        component.customId === buttonCustomId
-                );
-
-                if (button) {
-                    // Do something with the button
-                    await interaction.update({
-                        components: [],
-                        content: `Finished playing: **${song.title}**`,
-                    });
-                }
-            }
-        });
 
         // Handle player state changes
         player.on("error", (error: any) => console.error(error));

@@ -20,7 +20,8 @@ const client = new Client({
 module.exports = {
     client,
 };
-client.once(Events.ClientReady, (t_client: any) => {
+
+client.once(Events.ClientReady, async (t_client: any) => {
     console.log(`Ready! Logged in as ${t_client.user.tag}`);
 });
 
