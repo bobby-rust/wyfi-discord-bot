@@ -23,8 +23,7 @@ import {
     TextChannel,
     MessageManager,
     EmbedBuilder,
-    User,
-    UserMention,
+    Embed,
 } from "discord.js";
 
 import { downloadAudio } from "../functions/downloadAudio";
@@ -33,6 +32,8 @@ import {
     SongRequest,
     songRequestHandler,
 } from "../functions/songRequestHandler";
+import { queue } from "../state/queueState";
+import createEmbed from "../functions/createEmbed";
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -62,6 +63,14 @@ module.exports = {
                     .setRequired(false) // Default to 0.05
         ),
     async execute(interaction: any) {
+        if (!queue.isEmpty()) {
+            interaction.editReply({
+                content:
+                    "The bot is already playing a song. If you'd like to add a song to the queue, use /addsong",
+                ephemeral: true,
+            });
+            return;
+        }
         // Get information about caller
         const guild: Guild | null = interaction.guild;
         let textChannel: TextChannel = interaction.channel;
@@ -71,10 +80,10 @@ module.exports = {
 
         // Get caller's voice channel
         let voiceChannel: VoiceChannel | null = null;
-        voiceChannels?.forEach(c => {
+        voiceChannels?.forEach((c) => {
             if (c.type === 2) {
                 // 2 = voice
-                c.members.forEach(member => {
+                c.members.forEach((member) => {
                     // Find caller's channel
                     if (member.id === callerId) {
                         voiceChannel = c;
@@ -93,16 +102,17 @@ module.exports = {
             return;
         }
 
+        // I will use the queue to check if the bot is available instead of this
         // If the bot already has a voice connection, it is not available
-        const voiceConnection: VoiceConnection = getVoiceConnection(guild.id);
-        if (voiceConnection) {
-            await interaction.editReply({
-                content:
-                    "The bot is currently not available for a song request",
-                ephemeral: true,
-            });
-            return;
-        }
+        // const voiceConnection: VoiceConnection = getVoiceConnection(guild.id);
+        // if (voiceConnection) {
+        //     await interaction.editReply({
+        //         content:
+        //             "The bot is currently not available for a song request",
+        //         ephemeral: true,
+        //     });
+        //     return;
+        // }
 
         console.log(`interaction.user: ${interaction.user}`);
         console.log(`typeof interaction.user ${typeof interaction.user}`);
@@ -116,7 +126,7 @@ module.exports = {
             duration: null,
             title: null,
             thumbnail: null,
-            requester: interaction.user,
+            requester: interaction.user.username,
             url: null,
         };
         const request: SongRequest = {
@@ -139,6 +149,7 @@ module.exports = {
         }
 
         console.log(song);
+        queue.enqueue(song);
         // Get bot's permssions for the caller's voice channel
         const botPermissions: any = voiceChannel.permissionsFor(
             interaction.client.user
@@ -161,10 +172,10 @@ module.exports = {
         }
 
         // Get resource
-        const resourcePath = await downloadAudio(song.url);
+        let resourcePath = await downloadAudio(song.url);
 
         // Create audio resource
-        const resource: AudioResource = createAudioResource(resourcePath, {
+        let resource: AudioResource = createAudioResource(resourcePath, {
             inlineVolume: true,
         });
 
@@ -226,7 +237,7 @@ module.exports = {
         const subscription = connection.subscribe(player); // subscribes the player to the connection to play the audio in the current connection
 
         // Handle connection state changes
-        connection.on("error", error => {
+        connection.on("error", (error) => {
             console.error(`VoiceConnection error: ${error}`);
         });
 
@@ -306,6 +317,7 @@ module.exports = {
                 } catch (error) {
                     // Seems to be a real disconnect which SHOULDN'T be recovered from
                     connection.destroy();
+                    queue.dequeue();
                 }
             }
         );
@@ -314,10 +326,10 @@ module.exports = {
         player.on("error", (error: any) => console.error(error));
 
         player.on(AudioPlayerStatus.Idle, async (oldState, newState: any) => {
-            console.log("Audio player finished.");
+            console.log("Song finished.");
             console.log(`buttons: ${buttons}`);
             const messages = await msgManager.fetch({
-                limit: 3,
+                limit: 10,
                 cache: false,
                 around: buttons[0],
             });
@@ -325,9 +337,22 @@ module.exports = {
             msg.edit({ components: [] });
             // console.log(messages);
             // console.dir(messages);
-            subscription?.unsubscribe();
-            connection.destroy();
+            queue.dequeue();
             buttons.pop();
+            if (queue.isEmpty()) {
+                subscription?.unsubscribe();
+                connection.destroy();
+            } else {
+                const song: Song = queue.getItems()[0];
+                console.log(`song in play: ${song}`);
+                resourcePath = await downloadAudio(queue.getItems()[0].url);
+                resource = createAudioResource(resourcePath, {
+                    inlineVolume: true,
+                });
+                player.play(resource);
+                const embed = createEmbed(song);
+                interaction.editReply({ embeds: [embed] });
+            }
         });
 
         player.on("stateChange", (oldState, newState) => {
@@ -338,29 +363,7 @@ module.exports = {
             console.log("Audio player is in the Playing state!");
         });
 
-        // Create UI
-        const embed = new EmbedBuilder()
-            .setColor(0x000000)
-            .setTitle(`Now playing: ${song.title}`)
-            .setURL(`${song.url}`)
-            .setAuthor({
-                name: "DJ WYFI Bot 🤖",
-                iconURL:
-                    "https://www.the-sun.com/wp-content/uploads/sites/6/2022/03/NINTCHDBPICT000468152103-1.jpg?w=620",
-                // url: "https://discord.js.org",
-            })
-            .setDescription(`Requested by: ${interaction.user.toString()}`)
-            .setImage(song.thumbnail)
-            // .setThumbnail(thumbnail_md)
-            .addFields({
-                name: "Duration: ",
-                value: `${Math.floor(song.duration / 60)}m${
-                    song.duration % 60
-                }s`,
-                inline: true,
-            })
-            .setTimestamp(new Date());
-
+        const embed: EmbedBuilder = createEmbed(song);
         const button = new ButtonBuilder()
             .setCustomId("stop_button")
             .setLabel("Stop")
@@ -370,19 +373,20 @@ module.exports = {
         const buttons = [];
 
         // Create collector
-        const filter = interaction => interaction.customId === "stop_button";
+        const filter = (interaction) => interaction.customId === "stop_button";
         const collector = interaction.channel.createMessageComponentCollector({
             filter,
             time: song.duration * 1000,
         });
 
         // Handle stop button interaction
-        collector.on("collect", async interaction => {
+        collector.on("collect", async (interaction) => {
             if (interaction.customId === "stop_button") {
                 console.log(button);
                 button.setDisabled(true);
                 const connection = getVoiceConnection(interaction.guild.id);
                 connection.destroy();
+                queue.dequeue();
                 await interaction.update({
                     components: [],
                     content: `Stopped playing: **${song.title}**`,

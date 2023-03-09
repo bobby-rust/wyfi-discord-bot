@@ -9,7 +9,7 @@ type EventInfo = {
     imgUrl: string;
 };
 
-export const scrape_ufc = async (): Promise<EventInfo> => {
+export const scrapeUfc = async (): Promise<EventInfo> => {
     const eventInfo = axios
         .get(url, { responseType: "document" })
         .then(async function (response: any) {

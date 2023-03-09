@@ -6,7 +6,7 @@ import {
     GuildScheduledEventEntityType,
 } from "discord.js";
 
-import { scrape_ufc } from "../scraping/scrape_ufc";
+import { scrapeUfc } from "../scraping/scrapeUfc";
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -70,7 +70,7 @@ module.exports = {
             return;
         }
 
-        const eventInfo = await scrape_ufc();
+        const eventInfo = await scrapeUfc();
 
         const eventParams: GuildScheduledEventCreateOptions = {
             name: eventInfo.headline.headline,
