@@ -14,42 +14,25 @@ import {
 
 import {
     Guild,
-    GuildTextBasedChannel,
     SlashCommandBuilder,
     SlashCommandStringOption,
     VoiceChannel,
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
-    MessageActionRowComponent,
-    Events,
-    Message,
-    ButtonComponent,
     TextChannel,
     MessageManager,
     EmbedBuilder,
+    User,
+    UserMention,
 } from "discord.js";
 
-import ytdl, { videoInfo } from "ytdl-core";
-import fs from "fs";
-import { getVideoDuration } from "../functions/getVideoDuration";
-import { getSearchResult } from "../functions/getSearchResult";
-
-// Wrap ytdl in a Promise
-function downloadAudio(ytUrl: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const stream = ytdl(ytUrl, {
-            filter: "audioonly",
-        })
-            .on("error", (err: any) => {
-                reject(err);
-            })
-            .on("end", () => {
-                resolve("audio.mp3");
-            });
-        stream.pipe(fs.createWriteStream("audio.mp3"));
-    });
-}
+import { downloadAudio } from "../functions/downloadAudio";
+import Song from "../types/song";
+import {
+    SongRequest,
+    songRequestHandler,
+} from "../functions/songRequestHandler";
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -80,7 +63,6 @@ module.exports = {
         ),
     async execute(interaction: any) {
         // Get information about caller
-        const { client } = require("../index");
         const guild: Guild | null = interaction.guild;
         let textChannel: TextChannel = interaction.channel;
         const msgManager: MessageManager = textChannel.messages;
@@ -89,10 +71,10 @@ module.exports = {
 
         // Get caller's voice channel
         let voiceChannel: VoiceChannel | null = null;
-        voiceChannels?.forEach((c) => {
+        voiceChannels?.forEach(c => {
             if (c.type === 2) {
                 // 2 = voice
-                c.members.forEach((member) => {
+                c.members.forEach(member => {
                     // Find caller's channel
                     if (member.id === callerId) {
                         voiceChannel = c;
@@ -122,73 +104,32 @@ module.exports = {
             return;
         }
 
+        console.log(`interaction.user: ${interaction.user}`);
+        console.log(`typeof interaction.user ${typeof interaction.user}`);
+
         // Get arguments
         const queryArg = interaction.options.get("search");
         const urlArg = interaction.options.get("url");
-        let searchQuery: string;
-        let ytUrl: string;
-        let duration: number;
-        let ytVid: { url: string; duration: number };
+
+        let song: Song = {
+            id: null,
+            duration: null,
+            title: null,
+            thumbnail: null,
+            requester: interaction.user,
+            url: null,
+        };
+        const request: SongRequest = {
+            query: null,
+            url: null,
+        };
+
         if (queryArg) {
-            // const queryArr: string[] = queryArg.value.split(" ");
-            // if (queryArr.length > 1) {
-            //     searchQuery = queryArr.join("+");
-            // }
-            searchQuery = queryArg.value;
-            const vidTmp = await getSearchResult(searchQuery);
-            console.log(vidTmp);
-            let videoDuration: number;
-            try {
-                videoDuration = vidTmp.duration;
-            } catch (err) {
-                interaction.editReply({
-                    content: `Could not find a video within the 10 minute time limit`,
-                    ephemeral: true,
-                });
-                return;
-            }
-            ytUrl = "https://www.youtube.com/watch?v=" + vidTmp.id;
-            // Set yt video obj
-            ytVid = {
-                url: ytUrl,
-                duration: videoDuration,
-            };
+            request.query = queryArg.value;
+            song = await songRequestHandler(request);
         } else if (urlArg) {
-            ytUrl = interaction.options.get("url").value;
-            console.log(`ytUrl: ${ytUrl}`);
-            // Ensure URL endpoint is YouTube
-            if (
-                !ytUrl.match(
-                    /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.?be)\/.+$/gi
-                )
-            ) {
-                interaction.editReply({
-                    content: "URL endpoint must be a YouTube video",
-                    ephemeral: true,
-                });
-                return;
-            } else {
-                // Ensure video length is within limit
-                const videoDuration = await getVideoDuration(ytUrl);
-                console.log(`videoDuration: ${videoDuration}`);
-                if (videoDuration > 600) {
-                    // > 10 minutes limit, arbitrarily chosen; can adjust based on user feedback
-                    console.log("invalid length");
-                    await interaction.editReply({
-                        content: "Video length exceeds the 10 minute limit",
-                        ephemeral: true,
-                    });
-                    return;
-                }
-                // Set yt video obj
-                ytVid = {
-                    url: ytUrl,
-                    duration: videoDuration,
-                };
-            }
-            console.log(
-                `interaction argument: ${interaction.options.get("url").value}`
-            );
+            request.url = urlArg.value;
+            song = await songRequestHandler(request);
         } else {
             interaction.editReply({
                 content: "You must provide either a URL or a search query",
@@ -197,6 +138,7 @@ module.exports = {
             return;
         }
 
+        console.log(song);
         // Get bot's permssions for the caller's voice channel
         const botPermissions: any = voiceChannel.permissionsFor(
             interaction.client.user
@@ -219,24 +161,7 @@ module.exports = {
         }
 
         // Get resource
-        const resourcePath = await downloadAudio(ytUrl);
-
-        // Get resource information
-        const songInfo: videoInfo = await ytdl.getInfo(ytUrl);
-        // Thumbnail images - currently using size medium, but others are available
-        // const thumbnail_md = songInfo.videoDetails.thumbnails[2].url;
-        // const thumbnail_xs = songInfo.videoDetails.thumbnails[0].url;
-        // const thumbnail_sm = songInfo.videoDetails.thumbnails[1].url;
-        const thumbnail_lg = songInfo.videoDetails.thumbnails[3].url;
-        const songTitle = songInfo.videoDetails.title;
-        const song = {
-            title: songTitle,
-            url: ytVid.url,
-            duration: ytVid.duration,
-            requester: interaction.user,
-            connection: null,
-            dispatcher: null,
-        };
+        const resourcePath = await downloadAudio(song.url);
 
         // Create audio resource
         const resource: AudioResource = createAudioResource(resourcePath, {
@@ -301,7 +226,7 @@ module.exports = {
         const subscription = connection.subscribe(player); // subscribes the player to the connection to play the audio in the current connection
 
         // Handle connection state changes
-        connection.on("error", (error) => {
+        connection.on("error", error => {
             console.error(`VoiceConnection error: ${error}`);
         });
 
@@ -424,8 +349,8 @@ module.exports = {
                     "https://www.the-sun.com/wp-content/uploads/sites/6/2022/03/NINTCHDBPICT000468152103-1.jpg?w=620",
                 // url: "https://discord.js.org",
             })
-            .setDescription(`Requested by: ${song.requester.toString()}`)
-            .setImage(thumbnail_lg)
+            .setDescription(`Requested by: ${interaction.user.toString()}`)
+            .setImage(song.thumbnail)
             // .setThumbnail(thumbnail_md)
             .addFields({
                 name: "Duration: ",
@@ -434,29 +359,7 @@ module.exports = {
                 }s`,
                 inline: true,
             })
-            //     { name: "\u200B", value: "\u200B" },
-            //     {
-            //         name: "Inline field title",
-            //         value: "Some value here",
-            //         inline: true,
-            //     },
-            //     {
-            //         name: "Inline field title",
-            //         value: "Some value here",
-            //         inline: true,
-            //     }
-            // )
-            // .addFields({
-            //     name: "Inline field title",
-            //     value: "Some value here",
-            //     inline: true,
-            // })
-            // .setImage("https://i.imgur.com/AfFp7pu.png")
             .setTimestamp(new Date());
-        // .setFooter({
-        //     text: "Some footer text here",
-        //     iconURL: "https://i.imgur.com/AfFp7pu.png",
-        // });
 
         const button = new ButtonBuilder()
             .setCustomId("stop_button")
@@ -467,14 +370,14 @@ module.exports = {
         const buttons = [];
 
         // Create collector
-        const filter = (interaction) => interaction.customId === "stop_button";
+        const filter = interaction => interaction.customId === "stop_button";
         const collector = interaction.channel.createMessageComponentCollector({
             filter,
             time: song.duration * 1000,
         });
 
         // Handle stop button interaction
-        collector.on("collect", async (interaction) => {
+        collector.on("collect", async interaction => {
             if (interaction.customId === "stop_button") {
                 console.log(button);
                 button.setDisabled(true);
@@ -490,13 +393,6 @@ module.exports = {
 
         // Interaction reply
         const replyOptions = {
-            // content: `${interaction.user.toString()} is now playing: **${
-            //     song.title
-            // }** - ${Math.floor(song.duration / 60)}m${song.duration % 60}s
-            // ${thumbnail_md ? `[](${thumbnail_md})` : ""}`,
-            //${thumbnail_xs ? `[](${thumbnail_xs})` : ""}
-            //${thumbnail_sm ? `[](${thumbnail_sm})` : ""}
-            // ${thumbnail_lg ? `[](${thumbnail_lg})` : ""}`,
             components: [row],
             embeds: [embed],
         };

@@ -35,12 +35,15 @@ export const getVideoDuration = async (videoId: string): Promise<number> => {
 };
 
 // Function to parse ISO 8601 duration format and return duration in seconds
-function parseDuration(duration: string) {
+function parseDuration(duration: string | null) {
     const match = duration.match(/PT(\d+H)?(\d+M)?(\d+S)?/);
-
-    const hours = match[1] ? parseInt(match[1].slice(0, -1)) : 0;
-    const minutes = match[2] ? parseInt(match[2].slice(0, -1)) : 0;
-    const seconds = match[3] ? parseInt(match[3].slice(0, -1)) : 0;
-
-    return hours * 3600 + minutes * 60 + seconds;
+    console.log(`match: ${match}`);
+    if (match) {
+        const hours = match[1] ? parseInt(match[1].slice(0, -1)) : 0;
+        console.log("past hours");
+        const minutes = match[2] ? parseInt(match[2].slice(0, -1)) : 0;
+        const seconds = match[3] ? parseInt(match[3].slice(0, -1)) : 0;
+        return hours * 3600 + minutes * 60 + seconds;
+    }
+    return null;
 }
