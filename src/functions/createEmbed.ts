@@ -1,11 +1,16 @@
 import { EmbedBuilder } from "@discordjs/builders";
 import Song from "../types/song";
 
-export default function createEmbed(song: Song): EmbedBuilder {
+export default function createEmbed(song: Song, title?: string): EmbedBuilder {
+    const embedTitle =
+        typeof title !== "undefined"
+            ? title + ` playing: ${song.title}`
+            : `Now playing: ${song.title}`;
+
     // Create UI
     const embed: EmbedBuilder = new EmbedBuilder()
         .setColor(0x000000)
-        .setTitle(`Now playing: ${song.title}`)
+        .setTitle(embedTitle)
         .setURL(`${song.url}`)
         .setAuthor({
             name: "DJ WYFI Bot 🤖",

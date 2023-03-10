@@ -4,7 +4,7 @@ import Song from "../types/song";
 import {
     SongRequest,
     songRequestHandler,
-} from "../functions/songRequestHandler";
+} from "../functions/handleSongRequest";
 
 module.exports = {
     data: new SlashCommandBuilder()

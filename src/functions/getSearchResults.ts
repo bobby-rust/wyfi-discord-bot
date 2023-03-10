@@ -2,7 +2,7 @@ const axios = require("axios");
 const { YT_API_KEY } = require("../../config.json");
 import { getVideoDuration } from "./getVideoDuration";
 import Song from "../types/song";
-import { songRequestHandler } from "./songRequestHandler";
+import { songRequestHandler } from "./handleSongRequest";
 
 export async function getSearchResults(query: string): Promise<Song> {
     console.log(query);
@@ -16,7 +16,7 @@ export async function getSearchResults(query: string): Promise<Song> {
                 maxResults: 10,
             },
         })
-        .then(res => {
+        .then((res) => {
             // Get the video IDs from the API response
             const videoIds = res.data.items.map(
                 (item: { id: { videoId: any } }) => item.id.videoId
@@ -32,7 +32,8 @@ export async function getSearchResults(query: string): Promise<Song> {
 
     let duration: number;
     let result: Song = {
-        id: null,
+        msgId: null,
+        vidId: null,
         duration: null,
         title: null,
         thumbnail: null,
@@ -49,7 +50,8 @@ export async function getSearchResults(query: string): Promise<Song> {
             console.log(`duration: ${duration}`);
             console.log("returning an object");
             result = {
-                id: res,
+                msgId: null,
+                vidId: res,
                 duration: duration,
                 title: null, // comes from ytdl info
                 thumbnail: null, // comes from ytdl info

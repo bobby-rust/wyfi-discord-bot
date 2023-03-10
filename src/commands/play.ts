@@ -31,9 +31,10 @@ import Song from "../types/song";
 import {
     SongRequest,
     songRequestHandler,
-} from "../functions/songRequestHandler";
+} from "../functions/handleSongRequest";
 import { queue } from "../state/queueState";
 import createEmbed from "../functions/createEmbed";
+import handleSongFinished from "../functions/handleSongFinished";
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -122,7 +123,8 @@ module.exports = {
         const urlArg = interaction.options.get("url");
 
         let song: Song = {
-            id: null,
+            msgId: null,
+            vidId: null,
             duration: null,
             title: null,
             thumbnail: null,
@@ -328,30 +330,17 @@ module.exports = {
         player.on(AudioPlayerStatus.Idle, async (oldState, newState: any) => {
             console.log("Song finished.");
             console.log(`buttons: ${buttons}`);
-            const messages = await msgManager.fetch({
-                limit: 10,
-                cache: false,
-                around: buttons[0],
-            });
-            const msg = messages.get(buttons[0]);
-            msg.edit({ components: [] });
-            // console.log(messages);
-            // console.dir(messages);
-            queue.dequeue();
-            buttons.pop();
-            if (queue.isEmpty()) {
-                subscription?.unsubscribe();
-                connection.destroy();
-            } else {
-                const song: Song = queue.getItems()[0];
-                console.log(`song in play: ${song}`);
-                resourcePath = await downloadAudio(queue.getItems()[0].url);
-                resource = createAudioResource(resourcePath, {
-                    inlineVolume: true,
-                });
-                player.play(resource);
-                const embed = createEmbed(song);
-                interaction.editReply({ embeds: [embed] });
+            const nextResource = await handleSongFinished(
+                msgManager,
+                buttons,
+                connection
+            );
+            if (nextResource) {
+                console.log("in idle state");
+                player.play(nextResource);
+                const embed = createEmbed(queue.front());
+                const msg = await textChannel.send({ embeds: [embed] });
+                queue.front().msgId = msg.id;
             }
         });
 
@@ -373,7 +362,8 @@ module.exports = {
         const buttons = [];
 
         // Create collector
-        const filter = (interaction) => interaction.customId === "stop_button";
+        const filter = (interaction: any) =>
+            interaction.customId === "stop_button";
         const collector = interaction.channel.createMessageComponentCollector({
             filter,
             time: song.duration * 1000,
@@ -401,6 +391,8 @@ module.exports = {
             embeds: [embed],
         };
         const songReply = await interaction.editReply(replyOptions);
-        buttons.push(songReply.id);
+        song.msgId = songReply.id;
+        console.log(song.msgId);
+        buttons.push(song.msgId);
     },
 };

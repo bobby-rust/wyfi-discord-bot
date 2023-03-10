@@ -13,7 +13,8 @@ export async function songRequestHandler(
     songRequest: SongRequest
 ): Promise<Song> {
     let song: Song = {
-        id: null,
+        msgId: null,
+        vidId: null,
         duration: null,
         title: null,
         thumbnail: null,
@@ -24,7 +25,7 @@ export async function songRequestHandler(
     // Handle search query request
     if (songRequest.query) {
         song = await getSearchResults(songRequest.query);
-        if (song.id === null) {
+        if (song.vidId === null) {
             song.error = "Could not find any videos using the search query";
             return song;
         } else if (song.duration === null) {
@@ -35,7 +36,7 @@ export async function songRequestHandler(
     // Handle url request
     else if (songRequest.url) {
         song.url = songRequest.url;
-        song.id = song.url.split("=")[1];
+        song.vidId = song.url.split("=")[1];
         if (
             !songRequest.url.match(
                 /^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.?be)\/.+$/gi
@@ -44,7 +45,7 @@ export async function songRequestHandler(
             song.error = "URL endpoint must be a YouTube video";
             return song;
         } else {
-            const songDuration = await getVideoDuration(song.id);
+            const songDuration = await getVideoDuration(song.vidId);
             console.log(`songDuration: ${songDuration}`);
             if (!(songDuration < 600)) {
                 song.error = "Video exceed the 10 minute limit";

@@ -1,7 +1,8 @@
 import { User } from "discord.js";
 
 type Song = {
-    id: string | null;
+    msgId: string | null;
+    vidId: string | null;
     duration: number | null;
     title: string | null;
     thumbnail: string | null;

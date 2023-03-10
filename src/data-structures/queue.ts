@@ -24,6 +24,10 @@ class Queue<T> implements IQueue<T> {
         return this.items;
     }
 
+    public front() {
+        return this.items[0];
+    }
+
     public enqueue(item: T) {
         this.items.push(item);
     }
